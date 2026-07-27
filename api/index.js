@@ -21,18 +21,14 @@ function callWaveAPI(postData) {
 
       response.on("end", () => {
         try {
-          resolve({
-            statusCode: response.statusCode,
-            data: JSON.parse(data)
-          });
+          resolve(JSON.parse(data));
         } catch (error) {
-          reject(new Error("Invalid response from WaveSMMPanel"));
+          reject(new Error("Invalid provider response"));
         }
       });
     });
 
     request.on("error", reject);
-
     request.write(postData);
     request.end();
   });
@@ -48,48 +44,50 @@ module.exports = async (req, res) => {
     });
   }
 
-  const action = req.query.action || "balance";
+  const serviceId = req.query.service;
 
-  try {
-    if (action === "balance") {
-      const postData = new URLSearchParams({
-        key: apiKey,
-        action: "balance"
-      }).toString();
-
-      const result = await callWaveAPI(postData);
-
-      return res.status(200).json({
-        success: true,
-        action: "balance",
-        provider: result.data
-      });
-    }
-
-    if (action === "services") {
-      const postData = new URLSearchParams({
-        key: apiKey,
-        action: "services"
-      }).toString();
-
-      const result = await callWaveAPI(postData);
-
-      return res.status(200).json({
-        success: true,
-        action: "services",
-        provider: result.data
-      });
-    }
-
+  if (!serviceId) {
     return res.status(400).json({
       success: false,
-      message: "Invalid action. Use ?action=balance or ?action=services"
+      message: "Please provide a service ID"
+    });
+  }
+
+  try {
+    const postData = new URLSearchParams({
+      key: apiKey,
+      action: "services"
+    }).toString();
+
+    const services = await callWaveAPI(postData);
+
+    if (!Array.isArray(services)) {
+      return res.status(502).json({
+        success: false,
+        message: "Unexpected provider response"
+      });
+    }
+
+    const service = services.find(
+      (item) => String(item.service) === String(serviceId)
+    );
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      service: service
     });
 
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "WaveSMMPanel API request failed",
+      message: "Provider API request failed",
       error: error.message
     });
   }
