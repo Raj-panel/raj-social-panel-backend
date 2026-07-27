@@ -4,9 +4,6 @@ const app = express();
 
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-
-// Home
 app.get("/", (req, res) => {
     res.json({
         success: true,
@@ -14,25 +11,16 @@ app.get("/", (req, res) => {
     });
 });
 
-// Provider API Test
+// Check Wave SMM API connection
 app.get("/api", async (req, res) => {
     try {
-        const apiKey = process.env.WAVE_API_KEY;
-
-        if (!apiKey) {
-            return res.status(500).json({
-                success: false,
-                message: "WAVE_API_KEY is missing"
-            });
-        }
-
         const response = await fetch("https://wavesmmpanel.com/api/v2", {
             method: "POST",
             headers: {
-                "Content-Type": "application/x-www-form-urlencoded"
+                "Content-Type": "application/json"
             },
-            body: new URLSearchParams({
-                key: apiKey,
+            body: JSON.stringify({
+                key: process.env.WAVE_API_KEY,
                 action: "balance"
             })
         });
@@ -45,15 +33,14 @@ app.get("/api", async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Provider API Error:", error);
-
         res.status(500).json({
             success: false,
-            message: "Provider API request failed",
-            error: error.message
+            message: error.message
         });
     }
 });
+
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
