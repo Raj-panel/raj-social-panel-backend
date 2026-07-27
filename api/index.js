@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
 
         const action = req.query.action || "balance";
 
-        // Return our Service Mapping
+        // Service Mapping
         if (action === "mapping") {
             return res.status(200).json({
                 success: true,
@@ -38,12 +38,64 @@ module.exports = async (req, res) => {
             });
         }
 
+        // Create Provider Order
+        if (action === "add") {
+            const platform = req.query.platform;
+            const service = req.query.service;
+            const link = req.query.link;
+            const quantity = Number(req.query.quantity);
+
+            if (!platform || !service || !link || !quantity) {
+                return res.status(400).json({
+                    success: false,
+                    message: "platform, service, link and quantity are required"
+                });
+            }
+
+            if (!SERVICE_MAP[platform] || !SERVICE_MAP[platform][service]) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid platform or service"
+                });
+            }
+
+            const providerServiceId =
+                SERVICE_MAP[platform][service];
+
+            const params = new URLSearchParams();
+
+            params.append("key", apiKey);
+            params.append("action", "add");
+            params.append("service", providerServiceId);
+            params.append("link", link);
+            params.append("quantity", quantity);
+
+            const response = await fetch(
+                "https://wavesmmpanel.com/api/v2",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/x-www-form-urlencoded"
+                    },
+                    body: params.toString()
+                }
+            );
+
+            const data = await response.json();
+
+            return res.status(200).json({
+                success: true,
+                provider: data
+            });
+        }
+
+        // Provider API actions
         const params = new URLSearchParams();
 
         params.append("key", apiKey);
         params.append("action", action);
 
-        // Search Provider Services
         if (action === "search") {
             const query = req.query.query;
 
@@ -62,7 +114,8 @@ module.exports = async (req, res) => {
             {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/x-www-form-urlencoded"
+                    "Content-Type":
+                        "application/x-www-form-urlencoded"
                 },
                 body: params.toString()
             }
