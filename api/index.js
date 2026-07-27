@@ -49,22 +49,72 @@ module.exports = async (req, res) => {
         // 3. SEARCH
         // /api?action=search&query=instagram
         // ==========================================
-        else if (action === "search") {
+    else if (action === "search") {
 
-            const query =
-                req.query.query ||
-                req.body?.query;
+    const query =
+        req.query.query ||
+        req.body?.query;
 
-            if (!query) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Please provide a search term"
-                });
-            }
+    if (!query) {
+        return res.status(400).json({
+            success: false,
+            message: "Please provide a search term"
+        });
+    }
 
-            params.append("action", "search");
-            params.append("query", query);
+    // First get all services from provider
+    const serviceParams = new URLSearchParams();
+
+    serviceParams.append("key", apiKey);
+    serviceParams.append("action", "services");
+
+    const serviceResponse = await fetch(
+        PROVIDER_API,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/x-www-form-urlencoded"
+            },
+            body: serviceParams.toString()
         }
+    );
+
+    const services = await serviceResponse.json();
+
+    // Provider error
+    if (services.error) {
+        return res.status(400).json({
+            success: false,
+            message: services.error
+        });
+    }
+
+    // Search locally
+    const searchTerm = query.toLowerCase();
+
+    const results = Array.isArray(services)
+        ? services.filter(service =>
+            String(service.service || "")
+                .toLowerCase()
+                .includes(searchTerm) ||
+
+            String(service.name || "")
+                .toLowerCase()
+                .includes(searchTerm) ||
+
+            String(service.category || "")
+                .toLowerCase()
+                .includes(searchTerm)
+        )
+        : [];
+
+    return res.status(200).json({
+        success: true,
+        count: results.length,
+        services: results
+    });
+}
 
         // ==========================================
         // 4. ADD ORDER
