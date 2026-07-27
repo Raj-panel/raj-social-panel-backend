@@ -1,25 +1,11 @@
-const SERVICE_MAP = {
-    instagram: {
-        followers: 1192,
-        likes: 784,
-        comments: 31,
-        shares: 49,
-        views: 10,
-        repost: 505,
-        photo_views: 1027
-    },
-    facebook: {
-        followers: 1283,
-        views: 1119,
-        shares: 460,
-        comments: 406
-    }
-};
-
-const API_URL = "https://wavesmmpanel.com/api/v2";
+const PROVIDER_API = "https://wavesmmpanel.com/api/v2";
 
 module.exports = async (req, res) => {
     try {
+        // ==============================
+        // Provider API Key
+        // Vercel Environment Variable
+        // ==============================
         const apiKey = process.env.WAVE_API_KEY;
 
         if (!apiKey) {
@@ -29,128 +15,260 @@ module.exports = async (req, res) => {
             });
         }
 
-        const action = req.query.action || "balance";
+        // ==============================
+        // Get Action
+        // ==============================
+        const action = req.query.action || req.body?.action || "balance";
 
-        // Show our mapped Service IDs
-        if (action === "mapping") {
-            return res.status(200).json({
-                success: true,
-                services: SERVICE_MAP
-            });
+        // ==============================
+        // Create Provider Request Params
+        // ==============================
+        const params = new URLSearchParams();
+
+        params.append("key", apiKey);
+
+        // ==========================================
+        // 1. BALANCE
+        // /api?action=balance
+        // ==========================================
+        if (action === "balance") {
+
+            params.append("action", "balance");
         }
 
-        // Get Provider Services and return only our selected IDs
-        if (action === "verify-services") {
+        // ==========================================
+        // 2. SERVICES
+        // /api?action=services
+        // ==========================================
+        else if (action === "services") {
 
-            const params = new URLSearchParams();
-            params.append("key", apiKey);
             params.append("action", "services");
+        }
 
-            const response = await fetch(API_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded"
-                },
-                body: params.toString()
-            });
+        // ==========================================
+        // 3. SEARCH
+        // /api?action=search&query=instagram
+        // ==========================================
+        else if (action === "search") {
 
-            const providerData = await response.json();
+            const query =
+                req.query.query ||
+                req.body?.query;
 
-            if (!Array.isArray(providerData)) {
-                return res.status(200).json({
+            if (!query) {
+                return res.status(400).json({
                     success: false,
-                    message: "Provider did not return a service list",
-                    provider: providerData
+                    message: "Please provide a search term"
                 });
             }
 
-            const selectedIds = Object.values(SERVICE_MAP)
-                .flatMap(platform => Object.values(platform));
+            params.append("action", "search");
+            params.append("query", query);
+        }
 
-            const selectedServices = providerData.filter(service =>
-                selectedIds.includes(Number(service.service))
+        // ==========================================
+        // 4. ADD ORDER
+        // /api?action=order
+        //
+        // Required:
+        // service
+        // link
+        // quantity
+        //
+        // Example:
+        // ?action=order
+        // &service=784
+        // &link=https://instagram.com/p/xxxx
+        // &quantity=100
+        // ==========================================
+        else if (action === "order") {
+
+            const service =
+                req.query.service ||
+                req.body?.service;
+
+            const link =
+                req.query.link ||
+                req.body?.link;
+
+            const quantity =
+                req.query.quantity ||
+                req.body?.quantity;
+
+            // Validate Service ID
+            if (!service) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Service ID is required"
+                });
+            }
+
+            // Validate Link
+            if (!link) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Target link is required"
+                });
+            }
+
+            // Validate Quantity
+            if (!quantity) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Quantity is required"
+                });
+            }
+
+            // Validate Quantity Number
+            const numericQuantity = Number(quantity);
+
+            if (
+                !Number.isFinite(numericQuantity) ||
+                numericQuantity <= 0
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid quantity"
+                });
+            }
+
+            // Provider API action
+            params.append("action", "add");
+
+            // Provider Service ID
+            params.append("service", service);
+
+            // Target URL
+            params.append("link", link);
+
+            // Quantity
+            params.append(
+                "quantity",
+                String(numericQuantity)
             );
+        }
 
-            return res.status(200).json({
-                success: true,
-                count: selectedServices.length,
-                services: selectedServices
+        // ==========================================
+        // 5. ORDER STATUS
+        // /api?action=status&order=12345
+        // ==========================================
+        else if (action === "status") {
+
+            const order =
+                req.query.order ||
+                req.body?.order;
+
+            if (!order) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Provider order ID is required"
+                });
+            }
+
+            params.append("action", "status");
+            params.append("order", order);
+        }
+
+        // ==========================================
+        // INVALID ACTION
+        // ==========================================
+        else {
+
+            return res.status(400).json({
+                success: false,
+                message: "Invalid action",
+                availableActions: [
+                    "balance",
+                    "services",
+                    "search",
+                    "order",
+                    "status"
+                ]
             });
         }
 
-        // Create Provider Order
-        if (action === "add") {
-            const platform = req.query.platform;
-            const service = req.query.service;
-            const link = req.query.link;
-            const quantity = Number(req.query.quantity);
-
-            if (!platform || !service || !link || !quantity) {
-                return res.status(400).json({
-                    success: false,
-                    message: "platform, service, link and quantity are required"
-                });
-            }
-
-            if (!SERVICE_MAP[platform] ||
-                !SERVICE_MAP[platform][service]) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Invalid platform or service"
-                });
-            }
-
-            const providerServiceId =
-                SERVICE_MAP[platform][service];
-
-            const params = new URLSearchParams();
-
-            params.append("key", apiKey);
-            params.append("action", "add");
-            params.append("service", providerServiceId);
-            params.append("link", link);
-            params.append("quantity", quantity);
-
-            const response = await fetch(API_URL, {
+        // ==========================================
+        // Send Request To Provider
+        // ==========================================
+        const response = await fetch(
+            PROVIDER_API,
+            {
                 method: "POST",
+
                 headers: {
                     "Content-Type":
                         "application/x-www-form-urlencoded"
                 },
-                body: params.toString()
-            });
 
-            const data = await response.json();
+                body: params.toString()
+            }
+        );
+
+        // ==========================================
+        // Provider HTTP Error
+        // ==========================================
+        if (!response.ok) {
+            return res.status(502).json({
+                success: false,
+                message: "Provider API returned an HTTP error",
+                status: response.status
+            });
+        }
+
+        // ==========================================
+        // Read Provider Response
+        // ==========================================
+        const data = await response.json();
+
+        // ==========================================
+        // Provider Error
+        // ==========================================
+        if (data.error) {
+            return res.status(400).json({
+                success: false,
+                message: data.error
+            });
+        }
+
+        // ==========================================
+        // ORDER SUCCESS
+        // ==========================================
+        if (action === "order") {
 
             return res.status(200).json({
                 success: true,
+                message: "Order successfully submitted to provider",
                 provider: data
             });
         }
 
-        // Provider API actions
-        const params = new URLSearchParams();
+        // ==========================================
+        // STATUS SUCCESS
+        // ==========================================
+        if (action === "status") {
 
-        params.append("key", apiKey);
-        params.append("action", action);
+            return res.status(200).json({
+                success: true,
+                message: "Order status fetched successfully",
+                provider: data
+            });
+        }
 
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: {
-                "Content-Type":
-                    "application/x-www-form-urlencoded"
-            },
-            body: params.toString()
-        });
-
-        const data = await response.json();
-
+        // ==========================================
+        // GENERAL SUCCESS
+        // ==========================================
         return res.status(200).json({
             success: true,
             provider: data
         });
 
     } catch (error) {
+
+        console.error(
+            "Provider API Error:",
+            error
+        );
+
         return res.status(500).json({
             success: false,
             message: "Provider API request failed",
