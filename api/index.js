@@ -1,105 +1,76 @@
-const https = require("https");
+const express = require("express");
 
-function callWaveAPI(postData) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: "wavesmmpanel.com",
-      path: "/api/v2",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(postData)
-      }
-    };
+const app = express();
 
-    const request = https.request(options, (response) => {
-      let data = "";
+app.use(express.json());
 
-      response.on("data", (chunk) => {
-        data += chunk;
-      });
+const API_URL = "https://wavesmmpanel.com/api/v2";
 
-      response.on("end", () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          reject(new Error("Invalid provider response"));
+// Test route
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        message: "Raj Social Panel API is working!"
+    });
+});
+
+// Main API route
+app.all("/", async (req, res) => {
+    try {
+        const apiKey = process.env.WAVE_API_KEY;
+
+        if (!apiKey) {
+            return res.status(500).json({
+                success: false,
+                message: "WAVE_API_KEY is missing"
+            });
         }
-      });
-    });
 
-    request.on("error", reject);
-    request.write(postData);
-    request.end();
-  });
-}
+        const action = req.query.action || req.body.action || "balance";
 
-module.exports = async (req, res) => {
-  const apiKey = process.env.WAVE_API_KEY;
+        const params = new URLSearchParams();
 
-  if (!apiKey) {
-    return res.status(500).json({
-      success: false,
-      message: "WAVE_API_KEY is not configured"
-    });
-  }
+        params.append("key", apiKey);
+        params.append("action", action);
 
-  const search = req.query.search;
+        // Search services
+        if (action === "search") {
+            const query = req.query.query || req.body.query;
 
-  if (!search) {
-    return res.status(400).json({
-      success: false,
-      message: "Please provide a search term"
-    });
-  }
+            if (!query) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Please provide a search term"
+                });
+            }
 
-  try {
-    const postData = new URLSearchParams({
-      key: apiKey,
-      action: "services"
-    }).toString();
+            params.append("query", query);
+        }
 
-    const services = await callWaveAPI(postData);
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: params.toString()
+        });
 
-    if (!Array.isArray(services)) {
-      return res.status(502).json({
-        success: false,
-        message: "Unexpected provider response"
-      });
+        const data = await response.json();
+
+        return res.json({
+            success: true,
+            provider: data
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Provider API request failed",
+            error: error.message
+        });
     }
+});
 
-    const searchWords = search
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    const results = services.filter((service) => {
-      const text = [
-        service.service,
-        service.name,
-        service.category,
-        service.type,
-        service.description
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return searchWords.every((word) => text.includes(word));
-    });
-
-    return res.status(200).json({
-      success: true,
-      search: search,
-      count: results.length,
-      services: results.slice(0, 50)
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Provider API request failed",
-      error: error.message
-    });
-  }
-};
+module.exports = app;
