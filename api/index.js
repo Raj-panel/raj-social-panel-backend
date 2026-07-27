@@ -22,7 +22,7 @@ function callWaveAPI(postData) {
       response.on("end", () => {
         try {
           resolve(JSON.parse(data));
-        } catch (error) {
+        } catch {
           reject(new Error("Invalid provider response"));
         }
       });
@@ -44,12 +44,12 @@ module.exports = async (req, res) => {
     });
   }
 
-  const serviceId = req.query.service;
+  const search = req.query.search;
 
-  if (!serviceId) {
+  if (!search) {
     return res.status(400).json({
       success: false,
-      message: "Please provide a service ID"
+      message: "Please provide a search term"
     });
   }
 
@@ -68,20 +68,31 @@ module.exports = async (req, res) => {
       });
     }
 
-    const service = services.find(
-      (item) => String(item.service) === String(serviceId)
-    );
+    const searchWords = search
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
 
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: "Service not found"
-      });
-    }
+    const results = services.filter((service) => {
+      const text = [
+        service.service,
+        service.name,
+        service.category,
+        service.type,
+        service.description
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchWords.every((word) => text.includes(word));
+    });
 
     return res.status(200).json({
       success: true,
-      service: service
+      search: search,
+      count: results.length,
+      services: results.slice(0, 50)
     });
 
   } catch (error) {
