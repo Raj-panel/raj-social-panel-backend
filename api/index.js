@@ -8,7 +8,6 @@ const SERVICE_MAP = {
         repost: 505,
         photo_views: 1027
     },
-
     facebook: {
         followers: 1283,
         views: 1119,
@@ -16,6 +15,8 @@ const SERVICE_MAP = {
         comments: 406
     }
 };
+
+const API_URL = "https://wavesmmpanel.com/api/v2";
 
 module.exports = async (req, res) => {
     try {
@@ -30,11 +31,50 @@ module.exports = async (req, res) => {
 
         const action = req.query.action || "balance";
 
-        // Service Mapping
+        // Show our mapped Service IDs
         if (action === "mapping") {
             return res.status(200).json({
                 success: true,
                 services: SERVICE_MAP
+            });
+        }
+
+        // Get Provider Services and return only our selected IDs
+        if (action === "verify-services") {
+
+            const params = new URLSearchParams();
+            params.append("key", apiKey);
+            params.append("action", "services");
+
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: params.toString()
+            });
+
+            const providerData = await response.json();
+
+            if (!Array.isArray(providerData)) {
+                return res.status(200).json({
+                    success: false,
+                    message: "Provider did not return a service list",
+                    provider: providerData
+                });
+            }
+
+            const selectedIds = Object.values(SERVICE_MAP)
+                .flatMap(platform => Object.values(platform));
+
+            const selectedServices = providerData.filter(service =>
+                selectedIds.includes(Number(service.service))
+            );
+
+            return res.status(200).json({
+                success: true,
+                count: selectedServices.length,
+                services: selectedServices
             });
         }
 
@@ -52,7 +92,8 @@ module.exports = async (req, res) => {
                 });
             }
 
-            if (!SERVICE_MAP[platform] || !SERVICE_MAP[platform][service]) {
+            if (!SERVICE_MAP[platform] ||
+                !SERVICE_MAP[platform][service]) {
                 return res.status(400).json({
                     success: false,
                     message: "Invalid platform or service"
@@ -70,17 +111,14 @@ module.exports = async (req, res) => {
             params.append("link", link);
             params.append("quantity", quantity);
 
-            const response = await fetch(
-                "https://wavesmmpanel.com/api/v2",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type":
-                            "application/x-www-form-urlencoded"
-                    },
-                    body: params.toString()
-                }
-            );
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type":
+                        "application/x-www-form-urlencoded"
+                },
+                body: params.toString()
+            });
 
             const data = await response.json();
 
@@ -96,30 +134,14 @@ module.exports = async (req, res) => {
         params.append("key", apiKey);
         params.append("action", action);
 
-        if (action === "search") {
-            const query = req.query.query;
-
-            if (!query) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Please provide a search term"
-                });
-            }
-
-            params.append("query", query);
-        }
-
-        const response = await fetch(
-            "https://wavesmmpanel.com/api/v2",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type":
-                        "application/x-www-form-urlencoded"
-                },
-                body: params.toString()
-            }
-        );
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type":
+                    "application/x-www-form-urlencoded"
+            },
+            body: params.toString()
+        });
 
         const data = await response.json();
 
