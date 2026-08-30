@@ -1,86 +1,283 @@
 const Order = require('../models/Order');
 
-// অর্ডার তৈরি করার কন্ট্রোলার (POST /api/orders/create)
+// ==========================================
+// CREATE ORDER
+// POST /api/orders/create
+// Frontend → Backend → MongoDB → Telegram
+// ==========================================
 exports.createOrder = async (req, res) => {
   try {
-    const { userId, platform, serviceId, serviceName, link, quantity, amount } = req.body;
-
-    if (!userId || !platform || !serviceId || !link || !quantity) {
-      return res.status(400).json({ success: false, message: 'প্রয়োজনীয় ফিল্ডগুলো পূরণ করা হয়নি।' });
-    }
-
-    // ইউনিক ইন্টারনাল অর্ডার আইডি জেনারেট (Duplicate Prevent)
-    const internalOrderId = 'ORD-' + Date.now() + '-' + Math.floor(1000 + Math.random() * 9000);
-
-    const newOrder = new Order({
-      internalOrderId,
+    const {
       userId,
       platform,
       serviceId,
       serviceName,
+      packageName,
       link,
       quantity,
-      amount: amount || 0,
-      paymentStatus: 'PAYMENT_PENDING',
-      orderStatus: 'PAYMENT_PENDING'
+      amount,
+      paymentId,
+      paymentMethod,
+      paymentStatus,
+      orderStatus
+    } = req.body;
+
+    // ------------------------------------------
+    // 1. Required fields validation
+    // ------------------------------------------
+    if (
+      !userId ||
+      !platform ||
+      !serviceId ||
+      !serviceName ||
+      !link ||
+      !quantity
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Required order fields are missing.'
+      });
+    }
+
+    // ------------------------------------------
+    // 2. Validate platform
+    // ------------------------------------------
+    if (!['platform1', 'platform2'].includes(platform)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid platform.'
+      });
+    }
+
+    // ------------------------------------------
+    // 3. Validate amount
+    // ------------------------------------------
+    const numericAmount = Number(amount || 0);
+
+    if (numericAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order amount.'
+      });
+    }
+
+    // ------------------------------------------
+    // 4. Generate internal order ID
+    // ------------------------------------------
+    const internalOrderId =
+      'ORD-' +
+      Date.now() +
+      '-' +
+      Math.floor(1000 + Math.random() * 9000);
+
+    // ------------------------------------------
+    // 5. Payment status
+    // ------------------------------------------
+    const finalPaymentStatus =
+      paymentStatus || (paymentId ? 'PAID' : 'PAYMENT_PENDING');
+
+    const finalOrderStatus =
+      orderStatus || (
+        finalPaymentStatus === 'PAID'
+          ? 'PAID'
+          : 'PAYMENT_PENDING'
+      );
+
+    // ------------------------------------------
+    // 6. Create MongoDB order
+    // ------------------------------------------
+    const newOrder = new Order({
+      internalOrderId,
+
+      userId,
+
+      platform,
+
+      serviceId: String(serviceId),
+
+      serviceName,
+
+      link,
+
+      quantity: Number(quantity),
+
+      amount: numericAmount,
+
+      paymentId: paymentId || null,
+
+      paymentStatus: finalPaymentStatus,
+
+      providerOrderId: null,
+
+      orderStatus: finalOrderStatus
     });
 
+    // ------------------------------------------
+    // 7. Save order to MongoDB
+    // ------------------------------------------
     await newOrder.save();
 
-    // প্ল্যাটফর্ম অনুযায়ী Telegram নোটিফিকেশন পাঠানো
-    let botToken;
-    let targetChatId;
+    console.log(
+      `✅ Order saved to MongoDB: ${internalOrderId}`
+    );
+
+    // ------------------------------------------
+    // 8. Select Telegram credentials
+    // ------------------------------------------
+    let botToken = null;
+    let targetChatId = null;
 
     if (platform === 'platform1') {
       botToken = process.env.TELEGRAM_BOT_TOKEN_1;
       targetChatId = process.env.TELEGRAM_CHAT_ID_1;
-    } else if (platform === 'platform2') {
+    }
+
+    if (platform === 'platform2') {
       botToken = process.env.TELEGRAM_BOT_TOKEN_2;
       targetChatId = process.env.TELEGRAM_CHAT_ID_2;
     }
 
-    if (botToken && targetChatId) {
-      const message =
-        `📦 New Order Received!\n` +
-        `----------------------\n` +
-        `🆔 Order ID: ${internalOrderId}\n` +
-        `🌐 Platform: ${platform.toUpperCase()}\n` +
-        `🛠️ Service: ${serviceName}\n` +
-        `🔢 Quantity: ${quantity}\n` +
-        `🔗 Link: ${link}\n` +
-        `💵 Price: ${amount}`;
+    // ------------------------------------------
+    // 9. Send Telegram notification
+    // ------------------------------------------
+    let telegramSent = false;
 
-      fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: targetChatId, text: message })
-      }).catch(err => console.error('Telegram notification error:', err));
+    if (botToken && targetChatId) {
+
+      const telegramMessage =
+        `🚀 NEW ORDER RECEIVED 🚀\n\n` +
+        `🆔 Order ID: ${internalOrderId}\n` +
+        `📌 Platform: ${platform}\n` +
+        `🛠️ Service: ${serviceName}\n` +
+        `📦 Package: ${packageName || 'N/A'}\n` +
+        `🔢 Quantity: ${Number(quantity).toLocaleString()}\n` +
+        `💰 Amount: ₹${numericAmount.toFixed(2)}\n` +
+        `🔗 Link: ${link}\n` +
+        `💳 Payment Method: ${paymentMethod || 'N/A'}\n` +
+        `🧾 Transaction ID / UTR: ${paymentId || 'N/A'}\n` +
+        `💵 Payment Status: ${finalPaymentStatus}\n` +
+        `📋 Order Status: ${finalOrderStatus}`;
+
+      try {
+
+        const telegramResponse = await fetch(
+          `https://api.telegram.org/bot${botToken}/sendMessage`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type': 'application/json'
+            },
+
+            body: JSON.stringify({
+              chat_id: targetChatId,
+              text: telegramMessage
+            })
+          }
+        );
+
+        const telegramData =
+          await telegramResponse.json();
+
+        if (telegramData.ok) {
+
+          telegramSent = true;
+
+          console.log(
+            `✅ Telegram notification sent: ${internalOrderId}`
+          );
+
+        } else {
+
+          console.error(
+            '❌ Telegram API Error:',
+            telegramData
+          );
+        }
+
+      } catch (telegramError) {
+
+        console.error(
+          '❌ Telegram connection error:',
+          telegramError
+        );
+      }
+
+    } else {
+
+      console.warn(
+        '⚠️ Telegram credentials are missing for:',
+        platform
+      );
     }
 
+    // ------------------------------------------
+    // 10. Return response to Frontend
+    // ------------------------------------------
     return res.status(201).json({
       success: true,
-      message: 'অর্ডার সফলভাবে তৈরি হয়েছে।',
-      order: newOrder
+
+      message: 'Order created successfully.',
+
+      order: newOrder,
+
+      telegramSent
     });
+
   } catch (error) {
-    console.error('Order Creation Error:', error);
-    return res.status(500).json({ success: false, message: 'সার্ভার এরর হয়েছে।' });
+
+    console.error(
+      '❌ Order Creation Error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while creating order.'
+    });
   }
 };
 
-// ইউজার ভিত্তিক অর্ডার লিস্ট পাওয়ার কন্ট্রোলার (GET /api/orders/user/:userId)
+
+// ==========================================
+// GET USER ORDERS
+// GET /api/orders/user/:userId
+// ==========================================
 exports.getUserOrders = async (req, res) => {
+
   try {
+
     const { userId } = req.params;
+
     const { platform } = req.query;
 
-    const query = { userId };
-    if (platform) query.platform = platform;
+    const query = {
+      userId
+    };
 
-    const orders = await Order.find(query).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, orders });
+    if (platform) {
+      query.platform = platform;
+    }
+
+    const orders = await Order
+      .find(query)
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      orders
+    });
+
   } catch (error) {
-    console.error('Fetch Orders Error:', error);
-    return res.status(500).json({ success: false, message: 'সার্ভার এরর হয়েছে।' });
+
+    console.error(
+      '❌ Fetch Orders Error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while fetching orders.'
+    });
   }
 };
