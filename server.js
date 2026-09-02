@@ -62,27 +62,16 @@ if (process.env.MONGO_URI) {
    ORDER ROUTES
 ========================================================= */
 
-// POST /api/orders/create
-// GET  /api/orders/user/:userId
-
 app.use('/api/orders', orderRoutes);
 
 /* =========================================================
    PAYMENT ROUTES
 ========================================================= */
 
-// POST /api/payment/create-order
-// POST /api/payment/verify
-
 app.use('/api/payment', paymentRoutes);
 
 /* =========================================================
-   TELEGRAM ORDER SUBMISSION
-   FRONTEND → BACKEND → TELEGRAM
-
-   IMPORTANT:
-   এখানে কোনো SMM Provider API ব্যবহার করা হচ্ছে না।
-   Customer order করলে শুধু Telegram-এ notification যাবে।
+   TELEGRAM ORDER SUBMISSION (FALLBACK)
 ========================================================= */
 
 app.post('/api/send-order', async (req, res) => {
@@ -105,10 +94,6 @@ app.post('/api/send-order', async (req, res) => {
       userId
     } = req.body;
 
-    /* -----------------------------------------------------
-       BASIC VALIDATION
-    ----------------------------------------------------- */
-
     if (!serviceName) {
       return res.status(400).json({
         success: false,
@@ -130,26 +115,12 @@ app.post('/api/send-order', async (req, res) => {
       });
     }
 
-    /* -----------------------------------------------------
-       PLATFORM / SOURCE
-    ----------------------------------------------------- */
-
-    const selectedPlatform =
-      platform ||
-      source ||
-      'platform1';
-
-    /* -----------------------------------------------------
-       TELEGRAM CREDENTIAL SELECTION
-    ----------------------------------------------------- */
+    const selectedPlatform = platform || source || 'platform1';
 
     let botToken;
     let targetChatId;
 
-    if (
-      selectedPlatform === 'platform2' ||
-      source === 'platform2'
-    ) {
+    if (selectedPlatform === 'platform2' || source === 'platform2') {
       botToken = process.env.TELEGRAM_BOT_TOKEN_2;
       targetChatId = process.env.TELEGRAM_CHAT_ID_2;
     } else {
@@ -157,106 +128,35 @@ app.post('/api/send-order', async (req, res) => {
       targetChatId = process.env.TELEGRAM_CHAT_ID_1;
     }
 
-    /* -----------------------------------------------------
-       FALLBACK TELEGRAM CREDENTIALS
-    ----------------------------------------------------- */
-
     if (!botToken || !targetChatId) {
-      botToken =
-        process.env.TELEGRAM_BOT_TOKEN_1 ||
-        process.env.TELEGRAM_BOT_TOKEN_2;
-
-      targetChatId =
-        process.env.TELEGRAM_CHAT_ID_1 ||
-        process.env.TELEGRAM_CHAT_ID_2;
+      botToken = process.env.TELEGRAM_BOT_TOKEN_1 || process.env.TELEGRAM_BOT_TOKEN_2;
+      targetChatId = process.env.TELEGRAM_CHAT_ID_1 || process.env.TELEGRAM_CHAT_ID_2;
     }
 
     if (!botToken || !targetChatId) {
-      console.error(
-        'Telegram configuration missing in .env'
-      );
-
       return res.status(500).json({
         success: false,
-        message:
-          'Telegram Bot Token or Chat ID is missing in .env'
+        message: 'Telegram Bot Token or Chat ID is missing in .env'
       });
     }
 
-    /* -----------------------------------------------------
-       ORDER ID
-    ----------------------------------------------------- */
-
-    const finalOrderId =
-      orderId ||
-      Math.floor(
-        100000 +
-        Math.random() * 900000
-      );
-
-    /* -----------------------------------------------------
-       PRICE
-    ----------------------------------------------------- */
-
-    let finalAmount = amount;
-
-    if (
-      finalAmount === undefined ||
-      finalAmount === null ||
-      finalAmount === ''
-    ) {
-      finalAmount = price || '0.00';
-    }
-
-    /* -----------------------------------------------------
-       TRANSACTION ID
-    ----------------------------------------------------- */
-
-    const finalTxnId =
-      txnId ||
-      transactionId ||
-      'N/A';
-
-    /* -----------------------------------------------------
-       USER IDENTIFIER
-    ----------------------------------------------------- */
-
-    const finalUserIdentifier =
-      userIdentifier ||
-      userId ||
-      'N/A';
-
-    /* -----------------------------------------------------
-       PAYMENT METHOD
-    ----------------------------------------------------- */
-
-    const finalPaymentMethod =
-      paymentMethod ||
-      'UPI QR Code';
-
-    /* -----------------------------------------------------
-       CURRENT DATE & TIME
-    ----------------------------------------------------- */
+    const finalOrderId = orderId || Math.floor(100000 + Math.random() * 900000);
+    let finalAmount = amount !== undefined && amount !== null && amount !== '' ? amount : (price || '0.00');
+    const finalTxnId = txnId || transactionId || 'N/A';
+    const finalUserIdentifier = userIdentifier || userId || 'N/A';
+    const finalPaymentMethod = paymentMethod || 'UPI QR Code';
 
     const now = new Date();
-
-    const formattedDate = now.toLocaleString(
-      'en-IN',
-      {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }
-    );
-
-    /* -----------------------------------------------------
-       TELEGRAM MESSAGE
-    ----------------------------------------------------- */
+    const formattedDate = now.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
 
     const message =
       `🚀 NEW ORDER SUBMITTED 🚀\n\n` +
@@ -271,54 +171,28 @@ app.post('/api/send-order', async (req, res) => {
       `🧾 Transaction ID / UTR: ${finalTxnId}\n\n` +
       `📅 Date: ${formattedDate}`;
 
-    /* -----------------------------------------------------
-       SEND TO TELEGRAM
-    ----------------------------------------------------- */
+    const telegramApiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
-    const telegramApiUrl =
-      `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const telegramResponse = await fetch(telegramApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chat_id: targetChatId,
+        text: message
+      })
+    });
 
-    const telegramResponse = await fetch(
-      telegramApiUrl,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          chat_id: targetChatId,
-          text: message
-        })
-      }
-    );
-
-    const telegramData =
-      await telegramResponse.json();
-
-    /* -----------------------------------------------------
-       TELEGRAM ERROR
-    ----------------------------------------------------- */
+    const telegramData = await telegramResponse.json();
 
     if (!telegramData.ok) {
-      console.error(
-        'Telegram API Error:',
-        telegramData
-      );
-
       return res.status(500).json({
         success: false,
         message: 'Failed to send order to Telegram',
         error: telegramData.description || 'Telegram API error'
       });
     }
-
-    /* -----------------------------------------------------
-       SUCCESS
-    ----------------------------------------------------- */
-
-    console.log(
-      `Telegram order sent successfully: #${finalOrderId}`
-    );
 
     return res.status(200).json({
       success: true,
@@ -327,11 +201,6 @@ app.post('/api/send-order', async (req, res) => {
     });
 
   } catch (error) {
-    console.error(
-      'Backend Send Order Error:',
-      error
-    );
-
     return res.status(500).json({
       success: false,
       message: 'Backend server error',
@@ -357,7 +226,6 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
-
   res.status(500).json({
     success: false,
     message: 'Internal server error'
@@ -371,7 +239,5 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(
-    `Backend is running on port ${PORT}`
-  );
+  console.log(`Backend is running on port ${PORT}`);
 });
