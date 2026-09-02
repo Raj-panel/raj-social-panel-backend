@@ -14,10 +14,13 @@ const app = express();
 ========================================================= */
 
 app.use(cors({
-  origin: true,
+  origin: ['https://rajsmmpanel.in', 'https://www.rajsmmpanel.in', 'http://localhost:3000', 'http://localhost:5000'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true
 }));
+
+app.options('*', cors());
 
 app.use(express.json());
 
@@ -372,4 +375,3 @@ app.listen(PORT, () => {
     `Backend is running on port ${PORT}`
   );
 });
-module.exports = app;
