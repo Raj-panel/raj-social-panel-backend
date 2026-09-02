@@ -372,3 +372,4 @@ app.listen(PORT, () => {
     `Backend is running on port ${PORT}`
   );
 });
+module.exports = app;
