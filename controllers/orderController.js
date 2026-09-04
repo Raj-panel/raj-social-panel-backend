@@ -77,11 +77,10 @@ exports.createOrder = async (req, res) => {
       paymentStatus || (paymentId ? 'PAID' : 'PAYMENT_PENDING');
 
     const finalOrderStatus =
-      orderStatus || (
-        finalPaymentStatus === 'PAID'
-          ? 'PAID'
-          : 'PAYMENT_PENDING'
-      );
+      orderStatus ||
+      (finalPaymentStatus === 'PAID'
+        ? 'PAID'
+        : 'PAYMENT_PENDING');
 
     // ------------------------------------------
     // 6. Create MongoDB order
@@ -121,9 +120,9 @@ exports.createOrder = async (req, res) => {
       `✅ Order saved to MongoDB: ${internalOrderId}`
     );
 
-    // ------------------------------------------
-    // 8. Select Telegram credentials
-    // ------------------------------------------
+    // ==========================================
+    // 8. SELECT TELEGRAM CREDENTIALS
+    // ==========================================
     let botToken = null;
     let targetChatId = null;
 
@@ -137,11 +136,9 @@ exports.createOrder = async (req, res) => {
       targetChatId = process.env.TELEGRAM_CHAT_ID_2;
     }
 
-    // ------------------------------------------
-    // 9. Send Telegram notification
-    // ------------------------------------------
-    let telegramSent = false;
-
+    // ==========================================
+    // 9. PREPARE TELEGRAM MESSAGE
+    // ==========================================
     if (botToken && targetChatId) {
 
       const telegramMessage =
@@ -158,50 +155,52 @@ exports.createOrder = async (req, res) => {
         `💵 Payment Status: ${finalPaymentStatus}\n` +
         `📋 Order Status: ${finalOrderStatus}`;
 
-      try {
-
-        const telegramResponse = await fetch(
-          `https://api.telegram.org/bot${botToken}/sendMessage`,
-          {
-            method: 'POST',
-
-            headers: {
-              'Content-Type': 'application/json'
-            },
-
-            body: JSON.stringify({
-              chat_id: targetChatId,
-              text: telegramMessage
-            })
-          }
-        );
-
-        const telegramData =
-          await telegramResponse.json();
-
-        if (telegramData.ok) {
-
-          telegramSent = true;
-
-          console.log(
-            `✅ Telegram notification sent: ${internalOrderId}`
-          );
-
-        } else {
-
-          console.error(
-            '❌ Telegram API Error:',
-            telegramData
-          );
+      // ==========================================
+      // 10. SEND TELEGRAM IN BACKGROUND
+      // IMPORTANT:
+      // DO NOT use await here.
+      // ==========================================
+      fetch(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            chat_id: targetChatId,
+            text: telegramMessage
+          })
         }
+      )
+        .then(async (telegramResponse) => {
+          try {
+            const telegramData =
+              await telegramResponse.json();
 
-      } catch (telegramError) {
-
-        console.error(
-          '❌ Telegram connection error:',
-          telegramError
-        );
-      }
+            if (telegramData.ok) {
+              console.log(
+                `✅ Telegram notification sent: ${internalOrderId}`
+              );
+            } else {
+              console.error(
+                '❌ Telegram API Error:',
+                telegramData
+              );
+            }
+          } catch (error) {
+            console.error(
+              '❌ Telegram response error:',
+              error.message
+            );
+          }
+        })
+        .catch((telegramError) => {
+          console.error(
+            '❌ Telegram connection error:',
+            telegramError.message
+          );
+        });
 
     } else {
 
@@ -211,9 +210,9 @@ exports.createOrder = async (req, res) => {
       );
     }
 
-    // ------------------------------------------
-    // 10. Return response to Frontend
-    // ------------------------------------------
+    // ==========================================
+    // 11. RETURN RESPONSE IMMEDIATELY
+    // ==========================================
     return res.status(201).json({
       success: true,
 
@@ -221,7 +220,7 @@ exports.createOrder = async (req, res) => {
 
       order: newOrder,
 
-      telegramSent
+      telegramSent: false
     });
 
   } catch (error) {
