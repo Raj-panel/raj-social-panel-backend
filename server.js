@@ -11,51 +11,71 @@ const app = express();
 
 /* =========================================================
    MONGODB CONNECTION
+   Optimized for Vercel / Serverless
    ========================================================= */
 
-let mongoConnectionPromise = null;
+const mongooseCache =
+  global.mongooseCache || {
+    conn: null,
+    promise: null
+  };
+
+global.mongooseCache = mongooseCache;
 
 const connectMongoDB = async () => {
   // Already connected
-  if (mongoose.connection.readyState === 1) {
-    return;
+  if (
+    mongooseCache.conn &&
+    mongoose.connection.readyState === 1
+  ) {
+    return mongooseCache.conn;
   }
 
-  // Connection is already in progress
-  if (mongoose.connection.readyState === 2 && mongoConnectionPromise) {
-    return mongoConnectionPromise;
+  // If connection is already in progress,
+  // wait for the existing connection.
+  if (mongooseCache.promise) {
+    return mongooseCache.promise;
   }
 
   if (!process.env.MONGO_URI) {
     throw new Error('MONGO_URI is missing');
   }
 
-  mongoConnectionPromise = mongoose.connect(process.env.MONGO_URI, {
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000
-  });
+  mongooseCache.promise = mongoose
+    .connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      bufferCommands: false,
+      maxPoolSize: 10
+    })
+    .then((mongooseInstance) => {
+      mongooseCache.conn = mongooseInstance;
 
-  try {
-    await mongoConnectionPromise;
+      console.log(
+        `✅ MongoDB Connected Successfully: ${mongooseInstance.connection.host}`
+      );
 
-    console.log(
-      `✅ MongoDB Connected Successfully: ${mongoose.connection.host}`
-    );
-  } catch (error) {
-    mongoConnectionPromise = null;
+      return mongooseInstance;
+    })
+    .catch((error) => {
+      mongooseCache.promise = null;
+      mongooseCache.conn = null;
 
-    console.error(
-      '❌ MongoDB Connection Error:',
-      error.message
-    );
+      console.error(
+        '❌ MongoDB Connection Error:',
+        error.message
+      );
 
-    throw error;
-  }
+      throw error;
+    });
+
+  return mongooseCache.promise;
 };
+
 
 /* =========================================================
    MIDDLEWARE
-========================================================= */
+   ========================================================= */
 
 app.use(cors({
   origin: [
@@ -84,9 +104,10 @@ app.options('*', cors());
 
 app.use(express.json());
 
+
 /* =========================================================
    ROOT / HEALTH CHECK
-========================================================= */
+   ========================================================= */
 
 app.get('/', (req, res) => {
   res.status(200).send(
@@ -101,11 +122,12 @@ app.get('/api', (req, res) => {
   });
 });
 
+
 /* =========================================================
    MONGODB CONNECTION MIDDLEWARE
-   Every API request that comes after this point waits
+   Every database-dependent API request waits
    until MongoDB is connected.
-========================================================= */
+   ========================================================= */
 
 app.use(async (req, res, next) => {
   try {
@@ -124,22 +146,25 @@ app.use(async (req, res, next) => {
   }
 });
 
+
 /* =========================================================
    ORDER ROUTES
-========================================================= */
+   ========================================================= */
 
 app.use('/api/orders', orderRoutes);
 
+
 /* =========================================================
    PAYMENT ROUTES
-========================================================= */
+   ========================================================= */
 
 app.use('/api/payment', paymentRoutes);
+
 
 /* =========================================================
    TELEGRAM ORDER SUBMISSION
    POST /api/send-order
-========================================================= */
+   ========================================================= */
 
 app.post('/api/send-order', async (req, res) => {
   try {
@@ -160,6 +185,7 @@ app.post('/api/send-order', async (req, res) => {
       userIdentifier,
       userId
     } = req.body;
+
 
     /* -------------------------------------------------------
        VALIDATION
@@ -186,6 +212,7 @@ app.post('/api/send-order', async (req, res) => {
       });
     }
 
+
     /* -------------------------------------------------------
        PLATFORM
     ------------------------------------------------------- */
@@ -207,6 +234,7 @@ app.post('/api/send-order', async (req, res) => {
       targetChatId = process.env.TELEGRAM_CHAT_ID_1;
     }
 
+
     /* -------------------------------------------------------
        TELEGRAM CREDENTIAL CHECK
     ------------------------------------------------------- */
@@ -218,6 +246,7 @@ app.post('/api/send-order', async (req, res) => {
           `Telegram credentials are missing for ${selectedPlatform}.`
       });
     }
+
 
     /* -------------------------------------------------------
        ORDER DATA
@@ -250,6 +279,7 @@ app.post('/api/send-order', async (req, res) => {
       paymentMethod ||
       'UPI QR Code';
 
+
     /* -------------------------------------------------------
        DATE
     ------------------------------------------------------- */
@@ -268,6 +298,7 @@ app.post('/api/send-order', async (req, res) => {
         hour12: false
       });
 
+
     /* -------------------------------------------------------
        TELEGRAM MESSAGE
     ------------------------------------------------------- */
@@ -285,6 +316,7 @@ app.post('/api/send-order', async (req, res) => {
       `🧾 Transaction ID / UTR: ${finalTxnId}\n\n` +
       `👤 User: ${finalUserIdentifier}\n\n` +
       `📅 Date: ${formattedDate}`;
+
 
     /* -------------------------------------------------------
        SEND TO TELEGRAM
@@ -313,6 +345,7 @@ app.post('/api/send-order', async (req, res) => {
     const telegramData =
       await telegramResponse.json();
 
+
     /* -------------------------------------------------------
        TELEGRAM ERROR
     ------------------------------------------------------- */
@@ -332,6 +365,7 @@ app.post('/api/send-order', async (req, res) => {
           'Telegram API error'
       });
     }
+
 
     /* -------------------------------------------------------
        SUCCESS
@@ -365,9 +399,10 @@ app.post('/api/send-order', async (req, res) => {
   }
 });
 
+
 /* =========================================================
    404 HANDLER
-========================================================= */
+   ========================================================= */
 
 app.use((req, res) => {
   res.status(404).json({
@@ -377,9 +412,10 @@ app.use((req, res) => {
   });
 });
 
+
 /* =========================================================
    GLOBAL ERROR HANDLER
-========================================================= */
+   ========================================================= */
 
 app.use((err, req, res, next) => {
 
@@ -395,9 +431,10 @@ app.use((err, req, res, next) => {
   });
 });
 
+
 /* =========================================================
    START SERVER
-========================================================= */
+   ========================================================= */
 
 const PORT =
   process.env.PORT || 5000;
@@ -408,8 +445,9 @@ app.listen(PORT, () => {
   );
 });
 
+
 /* =========================================================
    EXPORT FOR VERCEL
-========================================================= */
+   ========================================================= */
 
 module.exports = app;
