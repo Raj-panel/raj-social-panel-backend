@@ -11,7 +11,7 @@ const app = express();
 
 /* =========================================================
    MONGODB CONNECTION
-   Optimized for Vercel / Serverless
+   Optimized for Local Development + Vercel / Serverless
    ========================================================= */
 
 const mongooseCache =
@@ -23,11 +23,17 @@ const mongooseCache =
 global.mongooseCache = mongooseCache;
 
 const connectMongoDB = async () => {
+  const startTime = Date.now();
+
   // Already connected
   if (
     mongooseCache.conn &&
     mongoose.connection.readyState === 1
   ) {
+    console.log(
+      `⏱️ MongoDB already connected: ${Date.now() - startTime} ms`
+    );
+
     return mongooseCache.conn;
   }
 
@@ -50,6 +56,10 @@ const connectMongoDB = async () => {
     })
     .then((mongooseInstance) => {
       mongooseCache.conn = mongooseInstance;
+
+      console.log(
+        `⏱️ MongoDB connection time: ${Date.now() - startTime} ms`
+      );
 
       console.log(
         `✅ MongoDB Connected Successfully: ${mongooseInstance.connection.host}`
@@ -434,16 +444,35 @@ app.use((err, req, res, next) => {
 
 /* =========================================================
    START SERVER
+   Local Development:
+   MongoDB connects automatically BEFORE server starts.
+
+   Vercel:
+   The app is exported normally and MongoDB connection
+   remains handled by the request middleware above.
    ========================================================= */
 
 const PORT =
   process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(
-    `🚀 Backend is running on port ${PORT}`
-  );
-});
+if (require.main === module) {
+  connectMongoDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(
+          `🚀 Backend is running on port ${PORT}`
+        );
+      });
+    })
+    .catch((error) => {
+      console.error(
+        '❌ Backend startup failed because MongoDB could not connect:',
+        error.message
+      );
+
+      process.exit(1);
+    });
+}
 
 
 /* =========================================================
