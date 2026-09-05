@@ -6,6 +6,8 @@ const Order = require('../models/Order');
 // Frontend → Backend → MongoDB → Telegram
 // ==========================================
 exports.createOrder = async (req, res) => {
+  const requestStartTime = Date.now();
+
   try {
     const {
       userId,
@@ -21,6 +23,10 @@ exports.createOrder = async (req, res) => {
       paymentStatus,
       orderStatus
     } = req.body;
+
+    console.log(
+      `⏱️ [ORDER] Request started: ${Date.now() - requestStartTime} ms`
+    );
 
     // ------------------------------------------
     // 1. Required fields validation
@@ -38,6 +44,12 @@ exports.createOrder = async (req, res) => {
         message: 'Required order fields are missing.'
       });
     }
+
+    console.log(
+      `⏱️ [ORDER] Validation completed: ${
+        Date.now() - requestStartTime
+      } ms`
+    );
 
     // ------------------------------------------
     // 2. Validate platform
@@ -111,10 +123,30 @@ exports.createOrder = async (req, res) => {
       orderStatus: finalOrderStatus
     });
 
+    console.log(
+      `⏱️ [ORDER] MongoDB save started: ${
+        Date.now() - requestStartTime
+      } ms`
+    );
+
     // ------------------------------------------
     // 7. Save order to MongoDB
     // ------------------------------------------
     await newOrder.save();
+
+    const afterMongoDBTime = Date.now();
+
+    console.log(
+      `⏱️ [ORDER] MongoDB save completed: ${
+        afterMongoDBTime - requestStartTime
+      } ms`
+    );
+
+    console.log(
+      `⏱️ [ORDER] MongoDB save duration: ${
+        afterMongoDBTime - requestStartTime
+      } ms`
+    );
 
     console.log(
       `✅ Order saved to MongoDB: ${internalOrderId}`
@@ -136,11 +168,16 @@ exports.createOrder = async (req, res) => {
       targetChatId = process.env.TELEGRAM_CHAT_ID_2;
     }
 
+    console.log(
+      `⏱️ [ORDER] Telegram setup completed: ${
+        Date.now() - requestStartTime
+      } ms`
+    );
+
     // ==========================================
     // 9. PREPARE TELEGRAM MESSAGE
     // ==========================================
     if (botToken && targetChatId) {
-
       const telegramMessage =
         `🚀 NEW ORDER RECEIVED 🚀\n\n` +
         `🆔 Order ID: ${internalOrderId}\n` +
@@ -154,6 +191,12 @@ exports.createOrder = async (req, res) => {
         `🧾 Transaction ID / UTR: ${paymentId || 'N/A'}\n` +
         `💵 Payment Status: ${finalPaymentStatus}\n` +
         `📋 Order Status: ${finalOrderStatus}`;
+
+      console.log(
+        `⏱️ [ORDER] Telegram fetch starting: ${
+          Date.now() - requestStartTime
+        } ms`
+      );
 
       // ==========================================
       // 10. SEND TELEGRAM IN BACKGROUND
@@ -202,8 +245,12 @@ exports.createOrder = async (req, res) => {
           );
         });
 
+      console.log(
+        `⏱️ [ORDER] Telegram fetch launched without await: ${
+          Date.now() - requestStartTime
+        } ms`
+      );
     } else {
-
       console.warn(
         '⚠️ Telegram credentials are missing for:',
         platform
@@ -213,6 +260,18 @@ exports.createOrder = async (req, res) => {
     // ==========================================
     // 11. RETURN RESPONSE IMMEDIATELY
     // ==========================================
+    console.log(
+      `⏱️ [ORDER] Sending response: ${
+        Date.now() - requestStartTime
+      } ms`
+    );
+
+    const responseTime = Date.now() - requestStartTime;
+
+    console.log(
+      `🚀 [ORDER] RESPONSE READY IN: ${responseTime} ms`
+    );
+
     return res.status(201).json({
       success: true,
 
@@ -224,7 +283,6 @@ exports.createOrder = async (req, res) => {
     });
 
   } catch (error) {
-
     console.error(
       '❌ Order Creation Error:',
       error
@@ -243,9 +301,7 @@ exports.createOrder = async (req, res) => {
 // GET /api/orders/user/:userId
 // ==========================================
 exports.getUserOrders = async (req, res) => {
-
   try {
-
     const { userId } = req.params;
 
     const { platform } = req.query;
@@ -268,7 +324,6 @@ exports.getUserOrders = async (req, res) => {
     });
 
   } catch (error) {
-
     console.error(
       '❌ Fetch Orders Error:',
       error
